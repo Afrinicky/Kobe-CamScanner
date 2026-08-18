@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Kobe mark: a captured sheet framed by scanner brackets. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Page -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M41,32 H62 L75,45 V76 a4,4 0 0 1 -4,4 H41 a4,4 0 0 1 -4,-4 V36 a4,4 0 0 1 4,-4 Z" />
+    <!-- Folded corner -->
+    <path
+        android:fillColor="#FFE2DAD8"
+        android:pathData="M62,32 L75,45 H66 a4,4 0 0 1 -4,-4 Z" />
+    <!-- Text ruling, in Acrobat red -->
+    <path android:fillColor="#FFD2261C" android:pathData="M45,54 H67 v3.6 H45 Z" />
+    <path android:fillColor="#FFEC5A3E" android:pathData="M45,62 H67 v3.6 H45 Z" />
+    <path android:fillColor="#FFF08A72" android:pathData="M45,70 H58 v3.6 H45 Z" />
+
+    <!-- Scanner brackets -->
+    <path android:fillColor="#FFD2261C" android:pathData="M26,21 h13 v5 h-8 v8 h-5 Z" />
+    <path android:fillColor="#FFD2261C" android:pathData="M82,21 h-13 v5 h8 v8 h5 Z" />
+    <path android:fillColor="#FFD2261C" android:pathData="M26,87 h13 v-5 h-8 v-8 h-5 Z" />
+    <path android:fillColor="#FFD2261C" android:pathData="M82,87 h-13 v-5 h8 v-8 h5 Z" />
+</vector>

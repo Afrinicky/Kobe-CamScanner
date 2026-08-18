@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Only the values the platform needs before Compose takes over. -->
+    <color name="kobe_ink">#FF141011</color>
+    <color name="kobe_paper">#FFFFFFFF</color>
+    <color name="kobe_paper_night">#FF0E0C0D</color>
+    <color name="kobe_red">#FFD2261C</color>
+    <color name="ic_launcher_background">#FF1B1517</color>
+</resources>

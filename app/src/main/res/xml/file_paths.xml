@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <files-path name="kobe_documents" path="Kobe/Documents/" />
+    <files-path name="kobe_scans" path="Kobe/Scans/" />
+    <files-path name="kobe_exports" path="Kobe/Exports/" />
+    <files-path name="kobe_signatures" path="Kobe/Signatures/" />
+    <files-path name="kobe_thumbnails" path="Kobe/Thumbnails/" />
+    <cache-path name="kobe_cache" path="share/" />
+</paths>
