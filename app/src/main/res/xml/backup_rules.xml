@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Documents never leave the device automatically, not even via cloud backup. -->
+<full-backup-content>
+    <exclude domain="file" path="Kobe/" />
+    <exclude domain="database" path="kobe-library.db" />
+    <exclude domain="sharedpref" path="kobe_settings.preferences_pb" />
+</full-backup-content>
