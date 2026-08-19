@@ -1,5 +1,6 @@
 package com.kobe.camscanner.core.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -40,7 +41,7 @@ fun KobeTopBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (container == Color.Transparent) Modifier else Modifier)
+            .background(container)
             .statusBarsPadding()
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {

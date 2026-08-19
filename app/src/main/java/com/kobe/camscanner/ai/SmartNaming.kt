@@ -109,13 +109,21 @@ class SmartNaming @Inject constructor() {
         return null
     }
 
+    /**
+     * Letterheads are set in capitals, so the whole line arrives shouting. Short all-caps tokens
+     * are kept as-is because they are usually acronyms (ID, GHS, NHS) — except for the handful of
+     * short words that only *look* like acronyms in a letterhead. "ST ELIZABETH" is a saint, not
+     * an initialism, and the SDS example expects "St Elizabeth Hospital".
+     */
     private fun titleCase(raw: String): String = raw
         .split(Regex("\\s+"))
         .filter { it.isNotBlank() }
         .joinToString(" ") { word ->
             when {
-                word.length <= 3 && word.all { it.isUpperCase() } -> word          // ID, GHS, NHS
                 word.any { it.isDigit() } -> word
+                word.length <= 3 &&
+                    word.all { it.isUpperCase() } &&
+                    word.uppercase(Locale.US) !in NOT_ACRONYMS -> word
                 else -> word.lowercase(Locale.US).replaceFirstChar { it.titlecase(Locale.US) }
             }
         }
@@ -140,6 +148,14 @@ class SmartNaming @Inject constructor() {
             DocumentType.RECEIPT to listOf("receipt", "total", "change", "cashier", "subtotal", "thank you for"),
             DocumentType.BUSINESS_CARD to listOf("mobile", "email", "www.", "director", "manager"),
             DocumentType.CERTIFICATE to listOf("certificate", "is hereby", "awarded", "certify", "diploma"),
+        )
+
+        /**
+         * Short words that appear in capitals on a letterhead but are ordinary words, not
+         * initialisms, so they should be title-cased like everything else.
+         */
+        val NOT_ACRONYMS = setOf(
+            "ST", "DR", "MR", "MS", "MRS", "CO", "LTD", "PLC", "INC", "AND", "THE", "OF", "FOR",
         )
 
         /** Lines that are formatted like a letterhead but are not the organisation's name. */

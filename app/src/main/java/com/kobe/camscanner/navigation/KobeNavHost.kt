@@ -1,5 +1,6 @@
 package com.kobe.camscanner.navigation
 
+import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -191,7 +192,7 @@ fun KobeNavHost(
 private fun androidx.navigation.NavGraphBuilder.taskDestination(
     route: String,
     arguments: List<androidx.navigation.NamedNavArgument> = emptyList(),
-    content: @Composable (androidx.navigation.NavBackStackEntry) -> Unit,
+    content: @Composable AnimatedContentScope.(androidx.navigation.NavBackStackEntry) -> Unit,
 ) {
     composable(
         route = route,

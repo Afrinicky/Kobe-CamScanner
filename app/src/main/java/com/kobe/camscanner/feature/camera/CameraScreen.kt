@@ -73,6 +73,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.kobe.camscanner.R
+import com.kobe.camscanner.camera.DocumentAnalyzer
 import com.kobe.camscanner.core.permissions.rememberCameraPermissionState
 import com.kobe.camscanner.core.ui.components.KobeChip
 import com.kobe.camscanner.core.ui.components.KobeIconButton

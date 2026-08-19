@@ -28,6 +28,19 @@ user's documents. Everything in the list below works with Airplane Mode on.
 
 ---
 
+## Download
+
+Every push builds a debug APK on CI and publishes it here:
+
+**[→ Latest build](https://github.com/Afrinicky/Kobe-CamScanner/releases/tag/dev-latest)**
+
+Take `kobe-camscanner-arm64.apk` unless you know your phone is 32-bit. It is signed with the
+standard Android debug key, so it installs by hand: download it on the phone, allow *install from
+unknown sources* for your browser or file manager when prompted, and open the file. The package
+carries a `.debug` suffix so it can sit alongside a Play Store copy.
+
+---
+
 ## Building
 
 Kobe is a standard Gradle Android project. Open it in Android Studio (Ladybug or newer) and run, or:
@@ -45,13 +58,9 @@ Kobe is a standard Gradle Android project. Open it in Android Studio (Ladybug or
 - Android SDK 35, build tools 35+
 - minSdk 24, targetSdk 35
 
-The Gradle wrapper JAR is not checked in. Run `gradle wrapper` once (or let Android Studio generate
-it) before using `./gradlew`.
-
-> **Note on this repository's initial commit:** the project was authored in an environment where
-> `dl.google.com` — and therefore Google's Maven repository and the Android SDK — was blocked by
-> network policy. The source could not be compiled there. Treat the first build in a normal
-> environment as the real compile check.
+> **Note:** the project was authored in an environment where `dl.google.com` — and therefore
+> Google's Maven repository and the Android SDK — was blocked by network policy, so it could not be
+> compiled locally. It is compiled on CI instead; see the workflow in `.github/workflows/`.
 
 ---
 
@@ -113,7 +122,8 @@ Cloud backup is excluded for the whole `Kobe/` tree and the library database.
 ## Privacy
 
 - No account, no server, no analytics
-- No `INTERNET` permission in the manifest
+- No `INTERNET` permission — and because ML Kit's transitive dependencies declare one, it is
+  explicitly removed at manifest-merge time and the build fails if it reappears in the APK
 - OCR is a bundled on-device model — no download, no upload
 - Document classification and naming are local heuristics, not a cloud service
 - Signatures never leave the device

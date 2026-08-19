@@ -3,6 +3,7 @@ package com.kobe.camscanner.ocr
 import android.graphics.Bitmap
 import android.graphics.RectF
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -56,7 +57,7 @@ class OcrEngine @Inject constructor(
         val width = bitmap.width.toFloat()
         val height = bitmap.height.toFloat()
 
-        val text = suspendCancellableCoroutine { continuation ->
+        val text = suspendCancellableCoroutine<Text?> { continuation ->
             recogniser.process(input)
                 .addOnSuccessListener { continuation.resume(it) }
                 // A recognition failure is not exceptional — a blank or blurred page simply has no

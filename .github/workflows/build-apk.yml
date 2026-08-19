@@ -1,0 +1,177 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ "claude/kobe-camscanner-app-xikntz", "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    name: Debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Build debug APK
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee build.log
+
+      # Gradle's failure output is ~120 lines of stack trace with the actual Kotlin errors far
+      # above it. This pulls just the diagnostics to the end of the job log, where they are
+      # readable without downloading the whole archive.
+      - name: Compile errors
+        if: failure()
+        run: |
+          echo "===== KOTLIN / KSP DIAGNOSTICS ====="
+          grep -E "^(e: |w: .*(unresolved|never used|deprecated))" build.log | head -150 || true
+          echo "===== GRADLE FAILURE ====="
+          grep -A4 -E "^(FAILURE|\* What went wrong|Execution failed)" build.log | head -40 || true
+          echo "===== END ====="
+
+      # The debug build is signed with the runner's auto-generated debug keystore, which is all an
+      # APK needs to be installable by hand. A release build would need a real signing key.
+      - name: Stage the APKs
+        run: |
+          mkdir -p dist
+          out=app/build/outputs/apk/debug
+          cp "$out/app-arm64-v8a-debug.apk"   dist/kobe-camscanner-arm64.apk
+          cp "$out/app-armeabi-v7a-debug.apk" dist/kobe-camscanner-arm32.apk
+          cp "$out/app-universal-debug.apk"   dist/kobe-camscanner-universal.apk
+          ls -lh dist
+
+      # The product's central claim is that it cannot transmit a user's documents. Declaring no
+      # INTERNET permission is not sufficient on its own — ML Kit's transitive dependencies declare
+      # it and manifest merging pulls it in — so this asserts on the packaged artifact itself.
+      - name: Verify the APK ships no network permission
+        run: |
+          AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          echo "Using $AAPT2"
+          perms=$("$AAPT2" dump permissions dist/kobe-camscanner-arm64.apk)
+          echo "$perms"
+          if echo "$perms" | grep -qE "android\.permission\.(INTERNET|ACCESS_NETWORK_STATE)"; then
+            echo "::error::The packaged APK declares a network permission. Kobe must not be able to open a socket."
+            exit 1
+          fi
+          echo "Confirmed: no INTERNET, no ACCESS_NETWORK_STATE."
+
+      - name: Upload as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kobe-camscanner-apks
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # Also published as a release asset, which is a plain download link rather than a zip
+      # behind the Actions UI.
+      - name: Publish to the rolling dev release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="dev-latest"
+          NOTES=$(cat <<NOTE
+          Automatic debug build of \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:7}\`, built $(date -u '+%Y-%m-%d %H:%M UTC').
+
+          ### Which file do I want?
+
+          | File | For |
+          | --- | --- |
+          | **kobe-camscanner-arm64.apk** | **Almost every phone from the last decade. Start here.** |
+          | kobe-camscanner-arm32.apk | Older or very low-end 32-bit phones |
+          | kobe-camscanner-universal.apk | If neither of the above installs |
+
+          ### Installing
+
+          This is a debug build signed with the standard Android debug key, so it installs by hand
+          rather than through the Play Store. Download it on the phone, then allow *install from
+          unknown sources* for your browser or file manager when prompted, and open the file.
+
+          It will not upgrade over a Play Store copy, and it carries a \`.debug\` package suffix so
+          it can sit alongside one.
+          NOTE
+          )
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes "$NOTES" --title "Kobe CamScanner — latest debug build"
+            # Drop the pre-split asset so the release does not keep offering a 200 MB download.
+            gh release delete-asset "$TAG" kobe-camscanner-debug.apk --yes || true
+            gh release upload "$TAG" dist/*.apk --clobber
+          else
+            gh release create "$TAG" dist/*.apk \
+              --title "Kobe CamScanner — latest debug build" \
+              --notes "$NOTES" \
+              --prerelease
+          fi
+
+  tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --no-daemon 2>&1 | tee test.log
+
+      - name: Test failures
+        if: failure()
+        run: |
+          echo "===== KOTLIN / KSP DIAGNOSTICS ====="
+          grep -E "^(e: |w: .*unresolved)" test.log | head -150 || true
+          echo "===== FAILED TESTS ====="
+          grep -E "(FAILED|expected:|but was:)" test.log | head -60 || true
+          echo "===== END ====="
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
