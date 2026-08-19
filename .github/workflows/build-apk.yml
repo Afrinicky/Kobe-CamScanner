@@ -65,6 +65,21 @@ jobs:
           cp "$out/app-universal-debug.apk"   dist/kobe-camscanner-universal.apk
           ls -lh dist
 
+      # The product's central claim is that it cannot transmit a user's documents. Declaring no
+      # INTERNET permission is not sufficient on its own — ML Kit's transitive dependencies declare
+      # it and manifest merging pulls it in — so this asserts on the packaged artifact itself.
+      - name: Verify the APK ships no network permission
+        run: |
+          AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          echo "Using $AAPT2"
+          perms=$("$AAPT2" dump permissions dist/kobe-camscanner-arm64.apk)
+          echo "$perms"
+          if echo "$perms" | grep -qE "android\.permission\.(INTERNET|ACCESS_NETWORK_STATE)"; then
+            echo "::error::The packaged APK declares a network permission. Kobe must not be able to open a socket."
+            exit 1
+          fi
+          echo "Confirmed: no INTERNET, no ACCESS_NETWORK_STATE."
+
       - name: Upload as a workflow artifact
         uses: actions/upload-artifact@v4
         with:

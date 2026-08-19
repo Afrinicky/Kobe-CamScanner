@@ -3,10 +3,20 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!--
-      Kobe CamScanner is an offline-first application.
-      There is deliberately NO android.permission.INTERNET declaration:
-      the app is structurally incapable of transmitting a user's documents.
+      Kobe CamScanner is an offline-first application (SDS 46, 47).
+
+      Not declaring INTERNET is not enough on its own: ML Kit's transitive dependencies
+      (play-services-base, mlkit-common) declare INTERNET and ACCESS_NETWORK_STATE, and manifest
+      merging pulls them into the final APK. They are removed explicitly here, so the packaged
+      application genuinely cannot open a socket.
+
+      This is safe because the text recogniser is the *bundled* model: it ships inside the APK and
+      has nothing to download. The check in .github/workflows/build-apk.yml asserts on the built
+      artifact that neither permission has crept back in.
     -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"

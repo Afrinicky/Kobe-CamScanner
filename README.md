@@ -58,9 +58,6 @@ Kobe is a standard Gradle Android project. Open it in Android Studio (Ladybug or
 - Android SDK 35, build tools 35+
 - minSdk 24, targetSdk 35
 
-The Gradle wrapper JAR is not checked in. Run `gradle wrapper` once (or let Android Studio generate
-it) before using `./gradlew`.
-
 > **Note:** the project was authored in an environment where `dl.google.com` — and therefore
 > Google's Maven repository and the Android SDK — was blocked by network policy, so it could not be
 > compiled locally. It is compiled on CI instead; see the workflow in `.github/workflows/`.
@@ -125,7 +122,8 @@ Cloud backup is excluded for the whole `Kobe/` tree and the library database.
 ## Privacy
 
 - No account, no server, no analytics
-- No `INTERNET` permission in the manifest
+- No `INTERNET` permission — and because ML Kit's transitive dependencies declare one, it is
+  explicitly removed at manifest-merge time and the build fails if it reappears in the APK
 - OCR is a bundled on-device model — no download, no upload
 - Document classification and naming are local heuristics, not a cloud service
 - Signatures never leave the device
