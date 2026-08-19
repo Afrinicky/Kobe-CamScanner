@@ -1,6 +1,8 @@
 package com.kobe.camscanner.core.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.ripple
 import androidx.compose.ui.Modifier
@@ -85,14 +87,14 @@ fun Modifier.softSheen(
  * Tap plus optional long-press, sharing one interaction source with the caller's press animation.
  * Long-press is how multi-select starts in the library (SDS 15).
  */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 fun Modifier.combinedPress(
     interactionSource: MutableInteractionSource,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     enabled: Boolean = true,
 ): Modifier = composed {
-    androidx.compose.foundation.combinedClickable(
+    combinedClickable(
         interactionSource = interactionSource,
         indication = ripple(),
         enabled = enabled,
