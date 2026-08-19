@@ -52,6 +52,21 @@ android {
         buildConfig = true
     }
 
+    /**
+     * OpenCV and ML Kit each ship a native library per ABI, so a universal APK carries four copies
+     * of everything and lands around 200 MB. Splitting cuts the download to the one architecture a
+     * given phone actually runs. The universal APK is still produced as a fallback for anyone who
+     * does not know which they need.
+     */
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = true
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

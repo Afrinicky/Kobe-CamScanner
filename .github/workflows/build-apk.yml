@@ -56,17 +56,20 @@ jobs:
 
       # The debug build is signed with the runner's auto-generated debug keystore, which is all an
       # APK needs to be installable by hand. A release build would need a real signing key.
-      - name: Stage the APK
+      - name: Stage the APKs
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/kobe-camscanner-debug.apk"
+          out=app/build/outputs/apk/debug
+          cp "$out/app-arm64-v8a-debug.apk"   dist/kobe-camscanner-arm64.apk
+          cp "$out/app-armeabi-v7a-debug.apk" dist/kobe-camscanner-arm32.apk
+          cp "$out/app-universal-debug.apk"   dist/kobe-camscanner-universal.apk
           ls -lh dist
 
       - name: Upload as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kobe-camscanner-debug-apk
-          path: dist/kobe-camscanner-debug.apk
+          name: kobe-camscanner-apks
+          path: dist/*.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -78,19 +81,35 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="dev-latest"
-          NOTES="Automatic debug build of \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:7}\`.
+          NOTES=$(cat <<NOTE
+          Automatic debug build of \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:7}\`, built $(date -u '+%Y-%m-%d %H:%M UTC').
 
-          Unsigned for release, signed with the standard Android debug key — installable by hand,
-          not through the Play Store. On your phone: allow installs from unknown sources for your
-          browser or file manager, then open the APK.
+          ### Which file do I want?
 
-          Built $(date -u '+%Y-%m-%d %H:%M UTC')."
+          | File | For |
+          | --- | --- |
+          | **kobe-camscanner-arm64.apk** | **Almost every phone from the last decade. Start here.** |
+          | kobe-camscanner-arm32.apk | Older or very low-end 32-bit phones |
+          | kobe-camscanner-universal.apk | If neither of the above installs |
+
+          ### Installing
+
+          This is a debug build signed with the standard Android debug key, so it installs by hand
+          rather than through the Play Store. Download it on the phone, then allow *install from
+          unknown sources* for your browser or file manager when prompted, and open the file.
+
+          It will not upgrade over a Play Store copy, and it carries a \`.debug\` package suffix so
+          it can sit alongside one.
+          NOTE
+          )
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --notes "$NOTES" --title "Kobe CamScanner — latest debug build"
-            gh release upload "$TAG" dist/kobe-camscanner-debug.apk --clobber
+            # Drop the pre-split asset so the release does not keep offering a 200 MB download.
+            gh release delete-asset "$TAG" kobe-camscanner-debug.apk --yes || true
+            gh release upload "$TAG" dist/*.apk --clobber
           else
-            gh release create "$TAG" dist/kobe-camscanner-debug.apk \
+            gh release create "$TAG" dist/*.apk \
               --title "Kobe CamScanner — latest debug build" \
               --notes "$NOTES" \
               --prerelease
