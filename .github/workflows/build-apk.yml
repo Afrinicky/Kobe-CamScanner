@@ -38,7 +38,21 @@ jobs:
           restore-keys: gradle-${{ runner.os }}-
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee build.log
+
+      # Gradle's failure output is ~120 lines of stack trace with the actual Kotlin errors far
+      # above it. This pulls just the diagnostics to the end of the job log, where they are
+      # readable without downloading the whole archive.
+      - name: Compile errors
+        if: failure()
+        run: |
+          echo "===== KOTLIN / KSP DIAGNOSTICS ====="
+          grep -E "^(e: |w: .*(unresolved|never used|deprecated))" build.log | head -150 || true
+          echo "===== GRADLE FAILURE ====="
+          grep -A4 -E "^(FAILURE|\* What went wrong|Execution failed)" build.log | head -40 || true
+          echo "===== END ====="
 
       # The debug build is signed with the runner's auto-generated debug keystore, which is all an
       # APK needs to be installable by hand. A release build would need a real signing key.
@@ -107,7 +121,18 @@ jobs:
           restore-keys: gradle-${{ runner.os }}-
 
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --no-daemon 2>&1 | tee test.log
+
+      - name: Test failures
+        if: failure()
+        run: |
+          echo "===== KOTLIN / KSP DIAGNOSTICS ====="
+          grep -E "^(e: |w: .*unresolved)" test.log | head -150 || true
+          echo "===== FAILED TESTS ====="
+          grep -E "(FAILED|expected:|but was:)" test.log | head -60 || true
+          echo "===== END ====="
 
       - name: Upload test report
         if: always()
