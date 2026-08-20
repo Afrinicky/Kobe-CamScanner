@@ -11,7 +11,10 @@ import androidx.room.RoomDatabase
         DocumentSearchEntity::class,
     ],
     version = 1,
-    exportSchema = true,
+    // The library is a cache over files that remain the source of truth and it is rebuilt
+    // destructively on any schema change, so there are no migrations to export. Exporting them
+    // also made debug and release KSP race for the same schema file.
+    exportSchema = false,
 )
 abstract class KobeDatabase : RoomDatabase() {
 

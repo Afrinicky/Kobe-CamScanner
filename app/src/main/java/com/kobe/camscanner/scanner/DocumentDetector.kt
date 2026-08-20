@@ -158,11 +158,12 @@ class DocumentDetector @Inject constructor() {
     }
 
     /**
-     * The three binary edge/region images the search runs over, cheapest and sharpest first.
-     * The caller releases each one.
+     * The binary edge and region images the search runs over. Edge views find a crisp outline;
+     * region views find the page as a solid shape, which is what survives low contrast and broken
+     * borders. The caller releases each one.
      */
     private fun buildEdgeMasks(blurred: Mat): List<Mat> {
-        val masks = ArrayList<Mat>(4)
+        val masks = ArrayList<Mat>(6)
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
 
         // Local contrast equalisation, which is what rescues a white page on a white desk: the
@@ -207,7 +208,30 @@ class DocumentDetector @Inject constructor() {
                 masks += closed
             }
 
-            // 2. Morphological gradient: responds to local change, so it still outlines a white
+            // 2. Otsu region split. When the page and the surface are two intensity populations
+            //    — which is most real captures, including a white sheet on a merely light desk —
+            //    a global threshold separates them outright where an edge detector finds almost
+            //    nothing. The text inside the page becomes holes, so a wide close fills it back
+            //    into one solid region before contouring. Both polarities are tried because a dark
+            //    document on a white desk is the same problem inverted.
+            val regionKernelSize = ((max(blurred.cols(), blurred.rows()) / 24) or 1).coerceIn(15, 41)
+            val regionKernel = Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(regionKernelSize.toDouble(), regionKernelSize.toDouble()),
+            )
+            listOf(Imgproc.THRESH_BINARY, Imgproc.THRESH_BINARY_INV).forEach { polarity ->
+                runCatching {
+                    val binary = Mat()
+                    Imgproc.threshold(blurred, binary, 0.0, 255.0, polarity + Imgproc.THRESH_OTSU)
+                    val closed = Mat()
+                    Imgproc.morphologyEx(binary, closed, Imgproc.MORPH_CLOSE, regionKernel)
+                    binary.release()
+                    masks += closed
+                }
+            }
+            regionKernel.release()
+
+            // 3. Morphological gradient: responds to local change, so it still outlines a white
             //    page lying on a pale desk where Canny's thresholds find almost nothing.
             runCatching {
                 val gradient = Mat()
@@ -228,7 +252,7 @@ class DocumentDetector @Inject constructor() {
                 masks += closed
             }
 
-            // 3. Adaptive threshold, which finds the page as a filled region. This is the one that
+            // 4. Adaptive threshold, another region view, tuned for a border partly lost in shadow. This is the one that
             //    survives a border partly lost in shadow, because it never needs a continuous edge.
             runCatching {
                 val binary = Mat()
