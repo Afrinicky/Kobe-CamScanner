@@ -99,14 +99,20 @@ class StabilityTracker(
         /** How long the corners must stay put before auto-capture fires. */
         const val HOLD_MILLIS = 700L
 
-        /** Maximum per-corner movement, in fractions of the frame, still counted as "steady". */
-        const val MOVEMENT_TOLERANCE = 0.022f
+        /**
+         * Maximum per-corner movement, in fractions of the frame, still counted as "steady".
+         * Loose enough for a handheld phone: at 0.022 an ordinary steady hand never qualified.
+         */
+        const val MOVEMENT_TOLERANCE = 0.035f
 
         /** Weight of each new detection in the smoothed boundary. */
         private const val SMOOTHING = 0.35f
 
-        /** Detections below this confidence do not count as a document at all. */
-        private const val MIN_CONFIDENCE = 0.45f
+        /**
+         * Detections below this confidence do not count as a document at all. Kept just under the
+         * detector's own reporting floor so anything it bothers to return is shown to the user.
+         */
+        private const val MIN_CONFIDENCE = 0.30f
 
         /** How long a boundary stays on screen after detection drops out. */
         private const val GRACE_MILLIS = 400L

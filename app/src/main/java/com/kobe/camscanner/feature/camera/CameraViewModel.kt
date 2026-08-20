@@ -3,6 +3,7 @@ package com.kobe.camscanner.feature.camera
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kobe.camscanner.camera.AnalysisResult
 import com.kobe.camscanner.core.common.FailureReason
 import com.kobe.camscanner.core.storage.KobeStorage
 import com.kobe.camscanner.data.repository.ScanSession
@@ -42,6 +43,8 @@ private data class LocalCameraState(
     val error: FailureReason? = null,
     val gridOverride: Boolean? = null,
     val autoCaptureOverride: Boolean? = null,
+    /** width / height of the analysis frame after rotation, for mapping onto the preview. */
+    val sourceAspect: Float = 3f / 4f,
 )
 
 data class CameraUiState(
@@ -57,6 +60,11 @@ data class CameraUiState(
     val capturedCount: Int = 0,
     val lastThumbnail: File? = null,
     val error: FailureReason? = null,
+    /**
+     * width / height of the upright camera frame. The overlay needs it to undo the preview's
+     * FILL_CENTER crop; without it the boundary is drawn at the wrong scale.
+     */
+    val sourceAspect: Float = 3f / 4f,
 ) {
     val canFinish: Boolean get() = capturedCount > 0
 }
@@ -92,6 +100,7 @@ class CameraViewModel @Inject constructor(
             capturedCount = scan.pageCount,
             lastThumbnail = scan.pages.lastOrNull()?.thumbnailFile,
             error = local.error,
+            sourceAspect = local.sourceAspect,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CameraUiState())
 
@@ -100,7 +109,9 @@ class CameraViewModel @Inject constructor(
         if (session.current.isEmpty) session.start(mode)
     }
 
-    fun onDetection(state: StabilityTracker.State) = local.update { it.copy(detection = state) }
+    fun onAnalysis(result: AnalysisResult) = local.update {
+        it.copy(detection = result.state, sourceAspect = result.uprightAspect)
+    }
 
     fun setMode(mode: ScanMode) = session.setMode(mode)
 

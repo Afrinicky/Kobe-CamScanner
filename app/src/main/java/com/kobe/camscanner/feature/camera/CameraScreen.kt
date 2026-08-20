@@ -195,7 +195,7 @@ private fun ScannerViewfinder(
             executor = executor,
             tracker = tracker,
             detector = detector,
-            onDetection = viewModel::onDetection,
+            onAnalysis = viewModel::onAnalysis,
             onBound = { capture, control ->
                 imageCapture = capture
                 cameraControl = control
@@ -230,6 +230,7 @@ private fun ScannerViewfinder(
 
         DetectionOverlay(
             state = state.detection,
+            sourceAspect = state.sourceAspect,
             modifier = Modifier.fillMaxSize(),
             accent = Color.White,
             detectColor = extra.detect,
@@ -597,7 +598,7 @@ private fun bindCamera(
     executor: ExecutorService,
     tracker: StabilityTracker,
     detector: DocumentDetector,
-    onDetection: (StabilityTracker.State) -> Unit,
+    onAnalysis: (com.kobe.camscanner.camera.AnalysisResult) -> Unit,
     onBound: (ImageCapture, androidx.camera.core.CameraControl) -> Unit,
     onUnavailable: () -> Unit,
 ) {
@@ -635,7 +636,7 @@ private fun bindCamera(
                 .apply {
                     setAnalyzer(
                         executor,
-                        DocumentAnalyzer(detector, tracker) { state, _, _, _ -> onDetection(state) },
+                        DocumentAnalyzer(detector, tracker, onAnalysis),
                     )
                 }
 

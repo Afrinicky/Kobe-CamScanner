@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import com.kobe.camscanner.scanner.FrameGeometry
 import com.kobe.camscanner.scanner.StabilityTracker
 
 /**
@@ -26,6 +27,7 @@ import com.kobe.camscanner.scanner.StabilityTracker
 @Composable
 fun DetectionOverlay(
     state: StabilityTracker.State,
+    sourceAspect: Float,
     modifier: Modifier = Modifier,
     accent: Color,
     detectColor: Color,
@@ -45,7 +47,12 @@ fun DetectionOverlay(
             return@Canvas
         }
 
-        val points = quad.points.map { Offset(it.x * size.width, it.y * size.height) }
+        val viewQuad = FrameGeometry.uprightToView(
+            quad = quad,
+            sourceAspect = sourceAspect,
+            viewAspect = if (size.height > 0f) size.width / size.height else 1f,
+        )
+        val points = viewQuad.points.map { Offset(it.x * size.width, it.y * size.height) }
         val path = Path().apply {
             moveTo(points[0].x, points[0].y)
             points.drop(1).forEach { lineTo(it.x, it.y) }

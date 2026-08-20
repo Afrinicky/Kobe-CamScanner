@@ -30,4 +30,15 @@ object OpenCvLoader {
         }
         Log.i(TAG, "OpenCV available: $isAvailable")
     }
+
+    /**
+     * Marks the native library as present without going through Android's loader.
+     *
+     * The JVM test harness loads desktop OpenCV natives itself and then calls this, which is what
+     * lets the real detection and enhancement code be measured on CI rather than only on a phone.
+     */
+    internal fun markAvailableForTesting(available: Boolean) {
+        initialised.set(true)
+        isAvailable = available
+    }
 }

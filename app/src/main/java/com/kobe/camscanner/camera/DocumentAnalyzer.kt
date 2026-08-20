@@ -3,23 +3,34 @@ package com.kobe.camscanner.camera
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.kobe.camscanner.scanner.DocumentDetector
+import com.kobe.camscanner.scanner.FrameGeometry
 import com.kobe.camscanner.scanner.StabilityTracker
 import java.util.concurrent.atomic.AtomicBoolean
+
+/** What the analyser hands back to the viewfinder, already in upright space. */
+data class AnalysisResult(
+    val state: StabilityTracker.State,
+    /** width / height of the frame *after* rotation, for mapping onto the preview. */
+    val uprightAspect: Float,
+)
 
 /**
  * The live detection loop.
  *
- * CameraX is configured with [ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST], so frames are dropped
- * rather than queued whenever detection is still busy — the preview stays fluid on a mid-range
- * device even when a frame takes longer than a frame interval to analyse (SDS 45).
+ * Frames arrive in the sensor's orientation, which on a phone held upright is landscape with
+ * `rotationDegrees = 90`. The boundary is detected in that space and then immediately converted to
+ * upright space, so everything downstream — the smoothing in [StabilityTracker], the on-screen
+ * overlay, and the quad handed to the capture — speaks one language. Skipping that conversion is
+ * what made detection look broken in the first build.
  *
- * Frames are additionally throttled to [MIN_INTERVAL_MS]. Detecting faster than that changes
- * nothing a user can see and only costs battery.
+ * CameraX is configured with [ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST], so frames are dropped
+ * rather than queued whenever detection is still busy, and the loop is additionally throttled to
+ * [MIN_INTERVAL_MS] because detecting faster changes nothing a user can see.
  */
 class DocumentAnalyzer(
     private val detector: DocumentDetector,
     private val tracker: StabilityTracker,
-    private val onResult: (StabilityTracker.State, frameWidth: Int, frameHeight: Int, rotation: Int) -> Unit,
+    private val onResult: (AnalysisResult) -> Unit,
 ) : ImageAnalysis.Analyzer {
 
     private val busy = AtomicBoolean(false)
@@ -46,17 +57,30 @@ class DocumentAnalyzer(
             val bytes = ByteArray(buffer.remaining())
             buffer.get(bytes)
 
+            val rotation = image.imageInfo.rotationDegrees
             val detection = detector.detectFromLuminance(
                 luminance = bytes,
                 width = image.width,
                 height = image.height,
                 rowStride = plane.rowStride,
             )
-            val state = tracker.update(detection, now)
-            onResult(state, image.width, image.height, image.imageInfo.rotationDegrees)
+
+            val upright = detection.quad?.let { FrameGeometry.analysisToUpright(it, rotation) }
+            val state = tracker.update(
+                DocumentDetector.Detection(upright, detection.confidence),
+                now,
+            )
+
+            val (uw, uh) = FrameGeometry.uprightSize(image.width, image.height, rotation)
+            onResult(AnalysisResult(state, if (uh > 0) uw.toFloat() / uh else 1f))
         } catch (t: Throwable) {
             // A single bad frame must never take the viewfinder down.
-            onResult(StabilityTracker.State(null, StabilityTracker.Phase.SEARCHING, 0f), 0, 0, 0)
+            onResult(
+                AnalysisResult(
+                    StabilityTracker.State(null, StabilityTracker.Phase.SEARCHING, 0f),
+                    1f,
+                ),
+            )
         } finally {
             busy.set(false)
             image.close()
