@@ -37,10 +37,13 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Build debug APK
+      # Release is the build users actually want: R8 strips the unused half of
+      # material-icons-extended and everything else the app never calls. Debug is built too, as a
+      # fallback in case shrinking breaks something only a device would reveal.
+      - name: Build APKs
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --no-daemon 2>&1 | tee build.log
+          ./gradlew assembleRelease assembleDebug --no-daemon 2>&1 | tee build.log
 
       # Gradle's failure output is ~120 lines of stack trace with the actual Kotlin errors far
       # above it. This pulls just the diagnostics to the end of the job log, where they are
@@ -59,11 +62,18 @@ jobs:
       - name: Stage the APKs
         run: |
           mkdir -p dist
-          out=app/build/outputs/apk/debug
-          cp "$out/app-arm64-v8a-debug.apk"   dist/kobe-camscanner-arm64.apk
-          cp "$out/app-armeabi-v7a-debug.apk" dist/kobe-camscanner-arm32.apk
-          cp "$out/app-universal-debug.apk"   dist/kobe-camscanner-universal.apk
+          rel=app/build/outputs/apk/release
+          dbg=app/build/outputs/apk/debug
+          cp "$rel/app-arm64-v8a-release.apk"   dist/kobe-camscanner-arm64.apk
+          cp "$rel/app-armeabi-v7a-release.apk" dist/kobe-camscanner-arm32.apk
+          cp "$rel/app-universal-release.apk"   dist/kobe-camscanner-universal.apk
+          cp "$dbg/app-arm64-v8a-debug.apk"     dist/kobe-camscanner-arm64-debug.apk
+          echo "--- shipped sizes ---"
           ls -lh dist
+          echo "--- release vs debug on arm64 ---"
+          printf "release %s\ndebug   %s\n" \
+            "$(du -h "$rel/app-arm64-v8a-release.apk" | cut -f1)" \
+            "$(du -h "$dbg/app-arm64-v8a-debug.apk" | cut -f1)"
 
       # The product's central claim is that it cannot transmit a user's documents. Declaring no
       # INTERNET permission is not sufficient on its own — ML Kit's transitive dependencies declare
@@ -106,6 +116,7 @@ jobs:
           | **kobe-camscanner-arm64.apk** | **Almost every phone from the last decade. Start here.** |
           | kobe-camscanner-arm32.apk | Older or very low-end 32-bit phones |
           | kobe-camscanner-universal.apk | If neither of the above installs |
+          | kobe-camscanner-arm64-debug.apk | Fallback if the shrunk build misbehaves |
 
           ### Installing
 
@@ -113,8 +124,8 @@ jobs:
           rather than through the Play Store. Download it on the phone, then allow *install from
           unknown sources* for your browser or file manager when prompted, and open the file.
 
-          It will not upgrade over a Play Store copy, and it carries a \`.debug\` package suffix so
-          it can sit alongside one.
+          **Uninstall any previous Kobe build first.** Each CI run signs with a freshly generated
+          test key, so Android will refuse to install over an earlier one.
           NOTE
           )
 
@@ -159,15 +170,6 @@ jobs:
           set -o pipefail
           ./gradlew testDebugUnitTest --no-daemon 2>&1 | tee test.log
 
-      - name: Test failures
-        if: failure()
-        run: |
-          echo "===== KOTLIN / KSP DIAGNOSTICS ====="
-          grep -E "^(e: |w: .*unresolved)" test.log | head -150 || true
-          echo "===== FAILED TESTS ====="
-          grep -E "(FAILED|expected:|but was:)" test.log | head -60 || true
-          echo "===== END ====="
-
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -175,3 +177,12 @@ jobs:
           name: unit-test-report
           path: app/build/reports/tests/
           if-no-files-found: ignore
+
+      - name: Test failures
+        if: failure()
+        run: |
+          echo "===== KOTLIN / KSP DIAGNOSTICS ====="
+          grep -E "^(e: |w: .*unresolved)" test.log | head -150 || true
+          echo "===== FAILED TESTS ====="
+          grep -E "(FAILED|expected|but was|AssertionError|Exception|was <)" test.log | head -80 || true
+          echo "===== END ====="

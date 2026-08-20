@@ -32,6 +32,16 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+            /*
+             * Signed with the debug key so CI can publish an installable build.
+             *
+             * This is a test build, not a distributable one: the debug key is generated per machine
+             * and its credentials are public by convention, so a new CI run produces a differently
+             * signed APK and will not upgrade over an older one. A real upload key must be wired in
+             * before this ever goes near a store.
+             */
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
