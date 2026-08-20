@@ -14,9 +14,11 @@ enum class PdfPageSize(val label: String, val widthPt: Float, val heightPt: Floa
 
 /** Raster quality of the embedded page images. */
 enum class PdfQuality(val label: String, val jpegQuality: Int, val maxLongEdgePx: Int) {
-    LOW("Low", 55, 1240),
-    STANDARD("Standard", 75, 1800),
-    HIGH("High", 88, 2600),
+    // Long edges chosen against A4: 1600 px is about 135 dpi, 2200 about 187, 3000 about 255.
+    // Standard sits where an office printer stops resolving more detail.
+    LOW("Low", 70, 1600),
+    STANDARD("Standard", 85, 2200),
+    HIGH("High", 92, 3000),
     MAXIMUM("Maximum", 96, 4000),
 }
 

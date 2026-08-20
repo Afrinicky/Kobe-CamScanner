@@ -169,7 +169,7 @@ class ScanProcessor @Inject constructor(
             }
 
             val processed = storage.processedFile(sessionId, pageId)
-            imageStore.writeJpeg(working, processed, quality = 93)
+            imageStore.writeJpeg(working, processed, quality = 96)
 
             val thumbnail = storage.thumbnailFile("$sessionId-$pageId")
             imageStore.writeThumbnail(working, thumbnail, edge = THUMBNAIL_EDGE)

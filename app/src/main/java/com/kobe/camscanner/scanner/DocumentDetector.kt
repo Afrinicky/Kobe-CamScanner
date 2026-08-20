@@ -162,9 +162,34 @@ class DocumentDetector @Inject constructor() {
      * The caller releases each one.
      */
     private fun buildEdgeMasks(blurred: Mat): List<Mat> {
-        val masks = ArrayList<Mat>(3)
+        val masks = ArrayList<Mat>(4)
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
+
+        // Local contrast equalisation, which is what rescues a white page on a white desk: the
+        // paper/desk step can be a handful of levels globally while being locally unambiguous.
+        val equalised = Mat()
+        val claheOk = runCatching {
+            Imgproc.createCLAHE(3.0, Size(8.0, 8.0)).apply(blurred, equalised)
+        }.isSuccess
+
         try {
+            if (claheOk) {
+                runCatching {
+                    val edges = Mat()
+                    val median = medianOf(equalised)
+                    Imgproc.Canny(
+                        equalised,
+                        edges,
+                        max(10.0, 0.60 * median),
+                        min(255.0, 1.40 * median),
+                    )
+                    val closed = Mat()
+                    Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel)
+                    edges.release()
+                    masks += closed
+                }
+            }
+
             // 1. Auto-tuned Canny, closed up so a printed border's small gaps do not split the
             //    outline into pieces.
             runCatching {
@@ -186,7 +211,8 @@ class DocumentDetector @Inject constructor() {
             //    page lying on a pale desk where Canny's thresholds find almost nothing.
             runCatching {
                 val gradient = Mat()
-                Imgproc.morphologyEx(blurred, gradient, Imgproc.MORPH_GRADIENT, kernel)
+                val gradientSource = if (claheOk) equalised else blurred
+                Imgproc.morphologyEx(gradientSource, gradient, Imgproc.MORPH_GRADIENT, kernel)
                 val binary = Mat()
                 Imgproc.threshold(
                     gradient,
@@ -228,6 +254,7 @@ class DocumentDetector @Inject constructor() {
             }
         } finally {
             kernel.release()
+            equalised.release()
         }
         return masks
     }
@@ -365,6 +392,9 @@ class DocumentDetector @Inject constructor() {
 
         val area = polygonArea(ordered)
         val coverage = (area / frameArea).coerceIn(0.0, 1.0)
+        // A "document" filling essentially the entire sensor is the frame border itself, which is
+        // what a featureless view produces once the region strategies threshold it into one blob.
+        if (coverage > MAX_COVERAGE) return 0.0
         // Coverage helps up to about a third of the frame and then stops mattering; a page filling
         // the viewfinder is not more likely to be a page than one filling 40% of it.
         val coverageScore = min(coverage / 0.35, 1.0)
@@ -463,6 +493,12 @@ class DocumentDetector @Inject constructor() {
 
         /** Contours smaller than this share of the frame are never a document. */
         private const val MIN_AREA_RATIO = 0.06
+
+        /**
+         * Above this share of the frame the candidate is the frame's own border rather than a page.
+         * A real document leaves at least a sliver of desk visible somewhere.
+         */
+        private const val MAX_COVERAGE = 0.96
 
         /** Only the largest few contours per strategy are worth approximating. */
         private const val MAX_CANDIDATES = 6
