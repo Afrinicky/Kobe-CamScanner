@@ -42,6 +42,7 @@ object SyntheticDocument {
      * @param shadowStrength 0 = evenly lit, 1 = one edge in deep shadow
      * @param clutter        draw distracting shapes on the desk
      * @param noise          gaussian sensor noise standard deviation
+     * @param paperShade     the document's own shade, so a dark card on a light desk can be posed
      */
     fun render(
         width: Int = 720,
@@ -51,12 +52,13 @@ object SyntheticDocument {
         shadowStrength: Double = 0.0,
         clutter: Boolean = false,
         noise: Double = 0.0,
+        paperShade: Double = 244.0,
     ): Truth {
         val canvas = Mat(height, width, CvType.CV_8UC1, Scalar(deskShade))
 
         if (clutter) drawClutter(canvas, deskShade)
 
-        val page = renderPage()
+        val page = renderPage(paperShade = paperShade)
         val warped = Mat()
         val mask = Mat()
 
@@ -122,9 +124,18 @@ object SyntheticDocument {
         ).map { Point(cx + it.x * cos - it.y * sin, cy + it.x * sin + it.y * cos) }
     }
 
-    /** A sheet of white paper with printed text on it. */
-    private fun renderPage(width: Int = 620, height: Int = 850): Mat {
-        val page = Mat(height, width, CvType.CV_8UC1, Scalar(244.0))
+    /**
+     * A sheet of paper with printed text on it.
+     *
+     * The ink follows the paper: dark type on a light sheet, light type on a dark card. The point
+     * of the text is that it is the strongest contrast in the frame — much stronger than the
+     * paper-to-desk step — which is exactly what makes a detector mistake the paragraph block for
+     * the document.
+     */
+    private fun renderPage(width: Int = 620, height: Int = 850, paperShade: Double = 244.0): Mat {
+        val page = Mat(height, width, CvType.CV_8UC1, Scalar(paperShade))
+        val heading = if (paperShade > 128.0) 30.0 else 225.0
+        val body = if (paperShade > 128.0) 55.0 else 200.0
 
         // A heading and body text, drawn as filled bars — at the scale detection works on, real
         // glyphs and bars are indistinguishable, and bars keep the fixture deterministic.
@@ -132,7 +143,7 @@ object SyntheticDocument {
             page,
             Point(width * 0.12, height * 0.08),
             Point(width * 0.66, height * 0.12),
-            Scalar(30.0),
+            Scalar(heading),
             -1,
         )
         var y = height * 0.20
@@ -143,7 +154,7 @@ object SyntheticDocument {
                 page,
                 Point(width * 0.12, y),
                 Point(right, y + height * 0.012),
-                Scalar(55.0),
+                Scalar(body),
                 -1,
             )
             y += height * 0.035

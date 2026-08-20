@@ -42,6 +42,17 @@ class DocumentDetectorTest {
 
     private val detector = DocumentDetector()
 
+    /** Shoelace area of a polygon, used to compare a detection's extent against the truth. */
+    private fun areaOf(points: List<Point>): Double {
+        var sum = 0.0
+        for (i in points.indices) {
+            val a = points[i]
+            val b = points[(i + 1) % points.size]
+            sum += a.x * b.y - b.x * a.y
+        }
+        return kotlin.math.abs(sum) / 2.0
+    }
+
     private fun detectAndMeasure(truth: SyntheticDocument.Truth): Double {
         val detection = detector.detectInGrey(truth.image)
         assertThat(detection.found).isTrue()
@@ -146,6 +157,41 @@ class DocumentDetectorTest {
             // A looser bound: everything is working against the detector here, and getting close
             // is enough because the user can nudge the corners.
             assertThat(detectAndMeasure(truth)).isLessThan(0.07)
+        } finally {
+            truth.image.release()
+        }
+    }
+
+    @Test
+    fun `prefers the page over the block of text printed on it`() {
+        // The failure this pins down: on a pale desk a single global threshold splits ink from
+        // everything else, so the detector returned the paragraph block — a crisper rectangle than
+        // the sheet, and scoring better for it — sitting entirely inside the page.
+        val truth = SyntheticDocument.render(deskShade = 205.0)
+        try {
+            val detection = detector.detectInGrey(truth.image)
+            assertThat(detection.found).isTrue()
+
+            val detected = detection.quad!!.points.map {
+                Point(
+                    it.x.toDouble() * truth.image.cols(),
+                    it.y.toDouble() * truth.image.rows(),
+                )
+            }
+            // Area, not corner distance: the text block would land well inside the page, and this
+            // says so directly rather than by proxy.
+            assertThat(areaOf(detected) / areaOf(truth.corners)).isGreaterThan(0.85)
+        } finally {
+            truth.image.release()
+        }
+    }
+
+    @Test
+    fun `finds a dark card on a white desk`() {
+        // The same problem inverted, which is an ID card or a dark cover on a bright table.
+        val truth = SyntheticDocument.render(deskShade = 238.0, paperShade = 70.0)
+        try {
+            assertThat(detectAndMeasure(truth)).isLessThan(TOLERANCE)
         } finally {
             truth.image.release()
         }

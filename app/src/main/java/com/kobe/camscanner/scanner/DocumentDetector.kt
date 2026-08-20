@@ -33,12 +33,18 @@ import kotlin.math.sqrt
  *  - **Morphological gradient** copes with low contrast — a white page on a light desk — because it
  *    responds to local intensity change rather than an absolute threshold.
  *  - **Auto-tuned Canny** is the sharpest on a well-lit page against a contrasting surface.
+ *  - **Layered Otsu** thresholds the paper away from the surface *after* discounting the ink, which
+ *    is the case a single global threshold always gets wrong (see [buildEdgeMasks]).
  *  - **Adaptive threshold** finds the page as a *region* rather than an outline, which is what
  *    survives when the border is partly lost in shadow.
  *
  * Each candidate contour is tried both as a polygon approximation and, if that does not yield four
  * usable points, as its minimum-area rectangle — so a page whose outline is slightly broken still
  * produces a sensible boundary instead of nothing at all.
+ *
+ * Finally, every candidate from every strategy competes at once, and one nested inside another is
+ * discarded. A block of body text is a beautifully rectangular thing sitting in the middle of a
+ * page, and without that rule it out-scores the page that contains it.
  */
 @Singleton
 class DocumentDetector @Inject constructor() {
@@ -123,22 +129,17 @@ class DocumentDetector @Inject constructor() {
             Imgproc.GaussianBlur(small, blurred, Size(5.0, 5.0), 0.0)
 
             val frameArea = (small.cols() * small.rows()).toDouble()
-            var best: Candidate? = null
+            val candidates = ArrayList<Candidate>()
 
             for (mask in buildEdgeMasks(blurred)) {
                 try {
-                    val candidate = bestQuadIn(mask, frameArea)
-                    if (candidate != null && (best == null || candidate.score > best!!.score)) {
-                        best = candidate
-                    }
+                    candidates += quadsIn(mask, frameArea)
                 } finally {
                     mask.release()
                 }
-                // A confident hit early on makes the remaining strategies pointless.
-                if ((best?.score ?: 0.0) > EARLY_ACCEPT) break
             }
 
-            val candidate = best ?: return Detection.NONE
+            val candidate = pickOutermost(candidates) ?: return Detection.NONE
             val width = small.cols().toFloat()
             val height = small.rows().toFloat()
             val normalised = candidate.points.map {
@@ -208,25 +209,44 @@ class DocumentDetector @Inject constructor() {
                 masks += closed
             }
 
-            // 2. Otsu region split. When the page and the surface are two intensity populations
-            //    — which is most real captures, including a white sheet on a merely light desk —
-            //    a global threshold separates them outright where an edge detector finds almost
-            //    nothing. The text inside the page becomes holes, so a wide close fills it back
-            //    into one solid region before contouring. Both polarities are tried because a dark
-            //    document on a white desk is the same problem inverted.
+            // 2. Region splits, where the page is found as a solid shape rather than an outline.
+            //
+            //    A plain Otsu threshold is the obvious way to do this and it is wrong on the most
+            //    ordinary frame there is: a printed page on a light desk. Otsu splits the *ink*
+            //    away from everything else — on the pale-desk fixture it lands at 153, with paper
+            //    at 244 and desk at 205 both above it — so the region it hands back is the block of
+            //    body text, a crisp rectangle sitting inside the page, and the detector cheerfully
+            //    reports that as the document.
+            //
+            //    So the split is layered. Otsu once over the whole histogram to find where the ink
+            //    ends, then Otsu again over each side of it: above, that separates paper from
+            //    surface; below, it separates a dark document from a dark surround. The ink no
+            //    longer votes on where the page boundary is.
             val regionKernelSize = ((max(blurred.cols(), blurred.rows()) / 24) or 1).coerceIn(15, 41)
             val regionKernel = Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT,
                 Size(regionKernelSize.toDouble(), regionKernelSize.toDouble()),
             )
-            listOf(Imgproc.THRESH_BINARY, Imgproc.THRESH_BINARY_INV).forEach { polarity ->
-                runCatching {
-                    val binary = Mat()
-                    Imgproc.threshold(blurred, binary, 0.0, 255.0, polarity + Imgproc.THRESH_OTSU)
-                    val closed = Mat()
-                    Imgproc.morphologyEx(binary, closed, Imgproc.MORPH_CLOSE, regionKernel)
-                    binary.release()
-                    masks += closed
+            runCatching {
+                val histogram = histogramOf(blurred)
+                val ink = otsuOnRange(histogram, 0, 255)
+                val cuts = listOf(
+                    otsuOnRange(histogram, ink + 1, 255) to Imgproc.THRESH_BINARY,
+                    otsuOnRange(histogram, 0, ink) to Imgproc.THRESH_BINARY_INV,
+                    ink to Imgproc.THRESH_BINARY,
+                    ink to Imgproc.THRESH_BINARY_INV,
+                )
+                cuts.forEach { (cut, polarity) ->
+                    if (cut in 1..254) {
+                        val binary = Mat()
+                        Imgproc.threshold(blurred, binary, cut.toDouble(), 255.0, polarity)
+                        val closed = Mat()
+                        // The text inside the page is a hole in the region; a wide close fills it
+                        // back in so the contour follows the sheet and not the paragraphs.
+                        Imgproc.morphologyEx(binary, closed, Imgproc.MORPH_CLOSE, regionKernel)
+                        binary.release()
+                        masks += closed
+                    }
                 }
             }
             regionKernel.release()
@@ -283,8 +303,8 @@ class DocumentDetector @Inject constructor() {
         return masks
     }
 
-    /** Best-scoring quadrilateral in one binary image. */
-    private fun bestQuadIn(mask: Mat, frameArea: Double): Candidate? {
+    /** Every plausible quadrilateral in one binary image. */
+    private fun quadsIn(mask: Mat, frameArea: Double): List<Candidate> {
         val contours = ArrayList<MatOfPoint>()
         val hierarchy = Mat()
         try {
@@ -295,29 +315,66 @@ class DocumentDetector @Inject constructor() {
                 Imgproc.RETR_EXTERNAL,
                 Imgproc.CHAIN_APPROX_SIMPLE,
             )
-            if (contours.isEmpty()) return null
+            if (contours.isEmpty()) return emptyList()
 
-            var best: Candidate? = null
+            val found = ArrayList<Candidate>(MAX_CANDIDATES)
             contours
                 .sortedByDescending { Imgproc.contourArea(it) }
                 .take(MAX_CANDIDATES)
                 .forEach { contour ->
-                    val area = Imgproc.contourArea(contour)
-                    if (area < frameArea * MIN_AREA_RATIO) return@forEach
+                    if (Imgproc.contourArea(contour) < frameArea * MIN_AREA_RATIO) return@forEach
 
                     quadFrom(contour)?.let { points ->
                         val score = scoreQuad(points, frameArea)
-                        if (score > MIN_SCORE && (best == null || score > best!!.score)) {
-                            best = Candidate(points, score)
+                        if (score > MIN_SCORE) {
+                            found += Candidate(points, score, polygonArea(points))
                         }
                     }
                 }
-            return best
+            return found
         } catch (t: Throwable) {
-            return null
+            return emptyList()
         } finally {
             contours.forEach { it.release() }
             hierarchy.release()
+        }
+    }
+
+    /**
+     * Chooses between every candidate every strategy produced.
+     *
+     * Highest score wins, with one override: a candidate sitting wholly inside a substantially
+     * larger one is discarded. The thing most likely to be nested inside a page is a block of body
+     * text, and by every geometric measure a paragraph is a *better* rectangle than the sheet it is
+     * printed on — squarer corners, cleaner edges. Score alone therefore reliably picks the text.
+     *
+     * The container has to be respectable in its own right ([NESTING_TOLERANCE] of the inner
+     * candidate's score) so that a sloppy blob swallowing half the desk cannot displace a genuinely
+     * good detection.
+     */
+    private fun pickOutermost(candidates: List<Candidate>): Candidate? {
+        if (candidates.isEmpty()) return null
+
+        val survivors = candidates.filter { inner ->
+            candidates.none { outer ->
+                outer !== inner &&
+                    outer.area > inner.area * NESTING_AREA_RATIO &&
+                    outer.score >= inner.score * NESTING_TOLERANCE &&
+                    contains(outer.points, inner.points)
+            }
+        }
+        return (survivors.ifEmpty { candidates }).maxByOrNull { it.score }
+    }
+
+    /** True when every corner of [inner] lies on or within the polygon [outer]. */
+    private fun contains(outer: List<Point>, inner: List<Point>): Boolean {
+        val polygon = MatOfPoint2f(*outer.toTypedArray())
+        return try {
+            inner.all { Imgproc.pointPolygonTest(polygon, it, false) >= 0.0 }
+        } catch (t: Throwable) {
+            false
+        } finally {
+            polygon.release()
         }
     }
 
@@ -472,35 +529,77 @@ class DocumentDetector @Inject constructor() {
 
     /** Median intensity, used to auto-tune the Canny thresholds. */
     private fun medianOf(mat: Mat): Double {
-        val histSize = 256
-        val hist = Mat()
-        try {
-            Imgproc.calcHist(
-                listOf(mat),
-                MatOfInt(0),
-                Mat(),
-                hist,
-                MatOfInt(histSize),
-                org.opencv.core.MatOfFloat(0f, 256f),
-            )
-            val total = mat.total()
-            var running = 0.0
-            val target = total / 2.0
-            val bin = FloatArray(1)
-            for (i in 0 until histSize) {
-                hist.get(i, 0, bin)
-                running += bin[0]
-                if (running >= target) return i.toDouble()
-            }
-            return 128.0
-        } catch (t: Throwable) {
-            return 128.0
-        } finally {
-            hist.release()
+        val histogram = histogramOf(mat)
+        val target = histogram.sum() / 2
+        var running = 0
+        for (level in 0 until LEVELS) {
+            running += histogram[level]
+            if (running >= target) return level.toDouble()
         }
+        return 128.0
     }
 
-    private data class Candidate(val points: List<Point>, val score: Double)
+    /** The 256-bin intensity histogram of an 8-bit single-channel image. */
+    private fun histogramOf(mat: Mat): IntArray {
+        val histogram = IntArray(LEVELS)
+        val pixels = ByteArray(mat.total().toInt() * mat.channels())
+        mat.get(0, 0, pixels)
+        for (pixel in pixels) histogram[pixel.toInt() and 0xFF]++
+        return histogram
+    }
+
+    /**
+     * Otsu's threshold computed over one slice of a histogram.
+     *
+     * Restricting the range is what makes the layered split work: run it over the whole histogram
+     * and the answer is dominated by the ink, so running it again over only the levels above that
+     * answer asks the question that actually matters — where does the paper end and the desk begin.
+     *
+     * Returns -1 when the range holds too little to split.
+     */
+    private fun otsuOnRange(histogram: IntArray, lo: Int, hi: Int): Int {
+        val low = lo.coerceIn(0, LEVELS - 1)
+        val high = hi.coerceIn(0, LEVELS - 1)
+        if (high - low < 2) return -1
+
+        var total = 0L
+        var sum = 0.0
+        for (level in low..high) {
+            total += histogram[level]
+            sum += level.toDouble() * histogram[level]
+        }
+        if (total == 0L) return -1
+
+        var backgroundWeight = 0L
+        var backgroundSum = 0.0
+        var bestVariance = -1.0
+        var bestLevel = -1
+
+        for (level in low until high) {
+            backgroundWeight += histogram[level]
+            if (backgroundWeight == 0L) continue
+            val foregroundWeight = total - backgroundWeight
+            if (foregroundWeight == 0L) break
+
+            backgroundSum += level.toDouble() * histogram[level]
+            val backgroundMean = backgroundSum / backgroundWeight
+            val foregroundMean = (sum - backgroundSum) / foregroundWeight
+            val delta = backgroundMean - foregroundMean
+            val variance = backgroundWeight.toDouble() * foregroundWeight.toDouble() * delta * delta
+
+            if (variance > bestVariance) {
+                bestVariance = variance
+                bestLevel = level
+            }
+        }
+        return bestLevel
+    }
+
+    private data class Candidate(
+        val points: List<Point>,
+        val score: Double,
+        val area: Double,
+    )
 
     /** A detected boundary and how much the detector trusts it. */
     data class Detection(val quad: Quad?, val confidence: Float) {
@@ -512,6 +611,9 @@ class DocumentDetector @Inject constructor() {
     }
 
     companion object {
+        /** Intensity levels in an 8-bit image. */
+        private const val LEVELS = 256
+
         /** Long edge, in pixels, of the proxy image every stage of detection runs on. */
         const val WORK_EDGE = 480f
 
@@ -540,8 +642,11 @@ class DocumentDetector @Inject constructor() {
         /** Below this a candidate is not worth reporting at all. */
         private const val MIN_SCORE = 0.30
 
-        /** Score at which the remaining strategies are skipped. */
-        private const val EARLY_ACCEPT = 0.82
+        /** How much bigger an enclosing candidate must be before it displaces a nested one. */
+        private const val NESTING_AREA_RATIO = 1.25
+
+        /** And how good it must be, relative to the candidate it displaces. */
+        private const val NESTING_TOLERANCE = 0.75
 
         /** Detection at or above this confidence is shown as a locked-on boundary. */
         const val LOCK_CONFIDENCE = 0.45f
